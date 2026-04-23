@@ -1,0 +1,25 @@
+{
+  "pat_token": "TU_PAT_TOKEN_AQUI",
+  "organization": "TU_ORGANIZACION",
+  "project": "TU_PROYECTO",
+  "interval_minutes": 30,
+  "output_dir": "output",
+  "rca_field_keywords": ["rca", "root cause", "causa raiz", "causa raíz", "rootcause", "análisis causa"],
+  "timeline_field_keywords": ["timeline", "cronologia", "cronología", "línea de tiempo", "linea de tiempo", "tiempo"],
+  "work_item_types": ["User Story", "Bug", "Task", "Feature", "Epic"],
+  "use_dummy_data": true,
+  "servicenow": {
+    "instance":              "TU_INSTANCIA",
+    "username":              "TU_USUARIO",
+    "password":              "TU_PASSWORD",
+    "query":                 "active=true^stateNOT IN6,7,8",
+    "limit":                 500,
+    "poll_interval_seconds": 30,
+    "server_port":           8765,
+    "alert_at":              "yellow",
+    "thresholds": {
+      "green_max":  1,
+      "yellow_max": 4
+    }
+  }
+}

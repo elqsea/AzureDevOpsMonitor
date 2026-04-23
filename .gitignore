@@ -1,0 +1,16 @@
+# Generated output files
+output/
+
+# Local Python installation
+python/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Excel files
+*.xlsx
+
+# Sensitive configs (keep config.json with placeholders only)
+config.local.json

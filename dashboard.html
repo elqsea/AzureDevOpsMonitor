@@ -1,0 +1,1314 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Azure DevOps Monitor</title>
+  <style>
+    :root {
+      --blue:      #0078d4;
+      --blue-dk:   #005a9e;
+      --green:     #107c10;
+      --yellow:    #b27600;
+      --red:       #a4262c;
+      --bg:        #f3f2f1;
+      --card:      #ffffff;
+      --border:    #edebe9;
+      --text:      #323130;
+      --sub:       #605e5c;
+      --hdr:       57px;
+      --tab:       44px;
+      --top-offset: calc(var(--hdr) + var(--tab));
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+    /* ── Header ── */
+    header {
+      background: var(--blue); color: #fff;
+      padding: 14px 24px; display: flex; align-items: center; gap: 16px;
+      box-shadow: 0 2px 6px rgba(0,0,0,.25);
+      position: sticky; top: 0; z-index: 100; height: var(--hdr);
+    }
+    header .logo { font-size: 22px; }
+    header h1 { font-size: 18px; font-weight: 600; flex: 1; }
+    header .meta { font-size: 12px; opacity: .85; text-align: right; line-height: 1.6; }
+
+    /* ── Tabs ── */
+    .tabs {
+      background: var(--card); border-bottom: 2px solid var(--border);
+      padding: 0 24px; display: flex; gap: 0;
+      position: sticky; top: var(--hdr); z-index: 99; height: var(--tab);
+    }
+    .tab-btn {
+      padding: 0 20px; border: none; background: none; cursor: pointer;
+      font-size: 13px; font-weight: 600; color: var(--sub);
+      border-bottom: 3px solid transparent; margin-bottom: -2px;
+      transition: all .15s; height: 100%;
+    }
+    .tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); }
+    .tab-btn:hover:not(.active) { color: var(--text); background: var(--bg); }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* ── Stats bar ── */
+    .stats { display: flex; gap: 12px; padding: 16px 24px; flex-wrap: wrap; }
+    .stat-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px 20px; min-width: 140px; text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    }
+    .stat-card .val { font-size: 28px; font-weight: 700; color: var(--blue); }
+    .stat-card .lbl { font-size: 11px; color: var(--sub); margin-top: 2px; text-transform: uppercase; letter-spacing: .5px; }
+    .stat-card.green .val  { color: var(--green); }
+    .stat-card.yellow .val { color: var(--yellow); }
+    .stat-card.red .val    { color: var(--red); }
+
+    /* ── Toolbar ── */
+    .toolbar { display: flex; gap: 10px; padding: 0 24px 14px; flex-wrap: wrap; align-items: center; }
+    .toolbar input, .toolbar select {
+      border: 1px solid #c8c6c4; border-radius: 4px; padding: 6px 10px;
+      font-size: 13px; outline: none; background: var(--card);
+    }
+    .toolbar input:focus, .toolbar select:focus { border-color: var(--blue); }
+    .toolbar input[type=search] { flex: 1; min-width: 200px; }
+    .btn { padding: 6px 14px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: background .15s; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-primary:hover { background: var(--blue-dk); }
+    .btn-ghost { background: transparent; border: 1px solid var(--blue); color: var(--blue); }
+    .btn-ghost:hover { background: #e1effa; }
+    .btn-success { background: var(--green); color: #fff; }
+    .btn-success:hover { background: #0b5e0b; }
+
+    /* ── Layout with panel ── */
+    .content-area { display: flex; gap: 0; align-items: flex-start; }
+    .main-content  { flex: 1; min-width: 0; }
+
+    /* ── Table ── */
+    .table-wrap { padding: 0 24px 24px; overflow-x: auto; }
+    table {
+      width: 100%; border-collapse: collapse; background: var(--card);
+      border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08); table-layout: fixed;
+    }
+    col.col-id       { width: 72px; }
+    col.col-type     { width: 120px; }
+    col.col-title    { width: auto; }
+    col.col-state    { width: 110px; }
+    col.col-assigned { width: 160px; }
+    col.col-date     { width: 140px; }
+    col.col-rca      { width: 70px; }
+    col.col-tl       { width: 70px; }
+    col.col-inc      { width: 130px; }
+    col.col-pri      { width: 110px; }
+    col.col-status   { width: 120px; }
+    thead th {
+      background: var(--blue); color: #fff; padding: 10px 12px;
+      text-align: left; font-weight: 600; font-size: 12px;
+      text-transform: uppercase; letter-spacing: .4px; white-space: nowrap;
+      cursor: pointer; user-select: none;
+    }
+    thead th:hover { background: var(--blue-dk); }
+    thead th .sort-icon { margin-left: 4px; opacity: .7; }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; cursor: pointer; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #f0f6ff; }
+    tbody tr.has-rca   { background: #f0fff4; }
+    tbody tr.has-rca:hover  { background: #dcf5e3; }
+    tbody tr.no-rca    { background: #fffbf0; }
+    tbody tr.no-rca:hover   { background: #fff3cc; }
+    tbody tr.inc-found   { background: #f0fff4; }
+    tbody tr.inc-found:hover { background: #dcf5e3; }
+    tbody tr.inc-pending { background: #fffbf0; }
+    tbody tr.inc-pending:hover { background: #fff3cc; }
+    tbody tr.active-row { outline: 2px solid var(--blue); outline-offset: -2px; }
+    td { padding: 9px 12px; vertical-align: middle; }
+    td.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    td.id-col   { font-weight: 700; color: var(--blue); font-size: 13px; white-space: nowrap; }
+
+    /* ── Badges ── */
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .badge-type-user-story { background: #dce5f5; color: #1259b0; }
+    .badge-type-bug        { background: #fde8e8; color: #a4262c; }
+    .badge-type-task       { background: #e8f5e9; color: #107c10; }
+    .badge-type-feature    { background: #f3e8ff; color: #7b3fb0; }
+    .badge-type-epic       { background: #fff3e0; color: #b35900; }
+    .badge-type-default    { background: #edebe9; color: #323130; }
+    .badge-rca-yes   { background: #dff6dd; color: #107c10; }
+    .badge-rca-no    { background: #fff4ce; color: #8a6000; }
+    .badge-found     { background: #dff6dd; color: #107c10; cursor: pointer; }
+    .badge-pending   { background: #fff4ce; color: #8a6000; cursor: pointer; }
+    .badge-pri-1     { background: #fde8e8; color: #a4262c; }
+    .badge-pri-2     { background: #fff4ce; color: #8a6000; }
+    .badge-pri-3     { background: #dce5f5; color: #1259b0; }
+    .badge-pri-other { background: #edebe9; color: #323130; }
+
+    /* ── Side panel ── */
+    .side-panel {
+      width: 0; overflow: hidden; transition: width .25s ease; flex-shrink: 0;
+      background: var(--card); border-left: 0px solid var(--border);
+      position: sticky; top: var(--top-offset); max-height: calc(100vh - var(--top-offset));
+    }
+    .side-panel.open { width: 420px; border-left-width: 1px; }
+    .panel-inner { width: 420px; display: flex; flex-direction: column; height: calc(100vh - var(--top-offset)); }
+    .panel-header { background: var(--blue); color: #fff; padding: 14px 16px; display: flex; align-items: flex-start; gap: 10px; flex-shrink: 0; }
+    .panel-header h2 { font-size: 14px; font-weight: 600; flex: 1; line-height: 1.4; }
+    .panel-close { background: none; border: none; color: #fff; font-size: 18px; cursor: pointer; padding: 0 2px; line-height: 1; }
+    .panel-close:hover { opacity: .7; }
+    .panel-body { padding: 16px; flex: 1; overflow-y: auto; }
+    .panel-section { margin-bottom: 18px; }
+    .panel-section h3 {
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+      color: var(--sub); margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
+    }
+    .panel-section p { font-size: 13px; line-height: 1.6; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: 13px; }
+    .meta-item { display: flex; flex-direction: column; gap: 2px; }
+    .meta-item .mk { font-weight: 600; font-size: 11px; color: var(--sub); text-transform: uppercase; }
+    .fields-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .fields-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); word-break: break-all; }
+    .fields-table td:first-child { color: var(--sub); font-weight: 600; width: 45%; }
+    .panel-link { display: inline-block; margin-top: 8px; color: var(--blue); text-decoration: none; font-size: 13px; font-weight: 600; }
+    .panel-link:hover { text-decoration: underline; }
+
+    /* ── INC editable fields ── */
+    .inc-field-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+    .inc-field-group label { font-size: 11px; font-weight: 700; color: var(--sub); text-transform: uppercase; }
+    .inc-field-group input, .inc-field-group textarea, .inc-field-group select {
+      border: 1px solid #c8c6c4; border-radius: 4px; padding: 6px 8px;
+      font-size: 13px; font-family: inherit; width: 100%; outline: none; background: #fafafa;
+    }
+    .inc-field-group input:focus, .inc-field-group textarea:focus, .inc-field-group select:focus { border-color: var(--blue); background: #fff; }
+    .inc-field-group textarea { resize: vertical; min-height: 70px; }
+
+    /* ── Add INC form ── */
+    .add-inc-form {
+      display: none; background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 16px; margin: 0 24px 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+    .add-inc-form.open { display: block; }
+    .add-inc-form h4 { font-size: 13px; font-weight: 700; margin-bottom: 12px; color: var(--blue); }
+    .add-inc-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+    .add-inc-row .field { display: flex; flex-direction: column; gap: 4px; }
+    .add-inc-row .field label { font-size: 11px; font-weight: 700; color: var(--sub); text-transform: uppercase; }
+    .add-inc-row .field input { border: 1px solid #c8c6c4; border-radius: 4px; padding: 6px 10px; font-size: 13px; outline: none; }
+    .add-inc-row .field input:focus { border-color: var(--blue); }
+    .add-inc-row .field-num { width: 150px; }
+    .add-inc-row .field-title { flex: 1; min-width: 220px; }
+
+    /* ── DevOps search results in panel ── */
+    .devops-result {
+      padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+      margin-bottom: 6px; cursor: pointer; transition: background .1s;
+    }
+    .devops-result:hover { background: #f0f6ff; border-color: var(--blue); }
+    .devops-result .dr-id { font-weight: 700; color: var(--blue); font-size: 12px; }
+    .devops-result .dr-title { font-size: 12px; color: var(--text); margin-top: 2px; }
+    .devops-result .dr-meta { font-size: 11px; color: var(--sub); margin-top: 2px; }
+
+    /* ── Empty state ── */
+    .empty { text-align: center; padding: 60px; color: var(--sub); }
+    .empty .icon { font-size: 48px; margin-bottom: 12px; }
+    .overlay { display: none; }
+
+    /* ── Snow alert banner ── */
+    .snow-alert-banner {
+      padding: 12px 24px; color: #fff;
+      display: flex; align-items: center; gap: 12px;
+      border-bottom: 2px solid rgba(0,0,0,.15);
+      animation: slideDown .3s ease;
+    }
+    .snow-alert-banner.tl-yellow { background: var(--yellow); }
+    .snow-alert-banner.tl-red    { background: var(--red); }
+    @keyframes slideDown { from { transform:translateY(-40px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+    .snow-alert-icon { font-size: 22px; flex-shrink: 0; }
+    .snow-alert-msg  { flex: 1; font-weight: 600; font-size: 14px; line-height: 1.4; }
+    .snow-alert-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+    .snow-alert-actions .btn-ghost { color:#fff; border-color:rgba(255,255,255,.6); }
+    .snow-alert-actions .btn-ghost:hover { background:rgba(255,255,255,.15); }
+
+    /* ── Traffic light semaphore card ── */
+    .snow-semaphore { min-width: 130px; border-left: 5px solid transparent; transition: all .4s; }
+    .tl-green  { border-left-color: var(--green);  background: #f0fff4; }
+    .tl-yellow { border-left-color: var(--yellow); background: #fffbf0; }
+    .tl-red    { border-left-color: var(--red);    background: #fde8e8; }
+    .snow-semaphore.tl-green  .val { color: var(--green);  font-size: 30px; }
+    .snow-semaphore.tl-yellow .val { color: var(--yellow); font-size: 30px; }
+    .snow-semaphore.tl-red    .val { color: var(--red);    font-size: 30px; }
+
+    /* ── Connection status dot ── */
+    .conn-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+    .conn-ok      { background: var(--green);  box-shadow: 0 0 5px var(--green); }
+    .conn-error   { background: var(--red);    box-shadow: 0 0 5px var(--red); }
+    .conn-offline { background: var(--yellow); box-shadow: 0 0 5px var(--yellow); }
+    .conn-unknown { background: #c8c6c4; }
+    .conn-wrap    { display:flex; align-items:center; font-size:12px; color:var(--sub); white-space:nowrap; }
+
+    /* ── Snow settings panel ── */
+    .snow-settings-panel {
+      display: none; background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 16px; margin: 0 24px 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+    .snow-settings-panel.open { display: block; }
+    .snow-settings-panel h4 { font-size:13px; font-weight:700; margin-bottom:12px; color:var(--blue); }
+    .snow-settings-row { display:flex; gap:8px; align-items:center; margin-bottom:10px; font-size:13px; flex-wrap:wrap; }
+    .snow-settings-row label { color: var(--sub); }
+    .snow-settings-row input[type=number] {
+      width:65px; border:1px solid #c8c6c4; border-radius:4px; padding:4px 8px; font-size:13px; outline:none;
+    }
+    .snow-settings-row input[type=number]:focus { border-color: var(--blue); }
+    .snow-settings-row input[type=number][readonly] { background:#f3f2f1; color:var(--sub); }
+    .snow-settings-sep { width:100%; border:none; border-top:1px solid var(--border); margin:8px 0; }
+
+    @media (max-width: 640px) {
+      .stats { padding: 12px; }
+      .toolbar, .table-wrap { padding-left: 12px; padding-right: 12px; }
+      .stat-card { min-width: 110px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">📋</span>
+  <h1>Azure DevOps Monitor</h1>
+  <div class="meta" id="headerMeta">—</div>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" id="tab-btn-devops" onclick="switchTab('devops')">📋 DevOps Work Items</button>
+  <button class="tab-btn"        id="tab-btn-inc"    onclick="switchTab('inc')">🎫 ServiceNow INC</button>
+  <button class="tab-btn"        id="tab-btn-snow"   onclick="switchTab('snow')"><span id="snowTabIcon">🔴</span> Monitor en Vivo</button>
+</nav>
+
+<!-- ═══════════════════════════ TAB: DEVOPS ═══════════════════════════ -->
+<div id="tab-devops" class="tab-pane active">
+
+  <div class="stats" id="statsBar"></div>
+
+  <div class="toolbar">
+    <input type="search" id="searchBox" placeholder="🔍  Buscar por ID, título, tipo, estado, asignado, descripción, RCA, timeline, tags, comentarios…" oninput="applyFilters()" />
+    <select id="typeFilter"  onchange="applyFilters()"><option value="">Todos los tipos</option></select>
+    <select id="stateFilter" onchange="applyFilters()"><option value="">Todos los estados</option></select>
+    <select id="rcaFilter"   onchange="applyFilters()">
+      <option value="">Con y sin RCA</option>
+      <option value="yes">Con RCA/Timeline</option>
+      <option value="no">Sin RCA/Timeline</option>
+    </select>
+    <button class="btn btn-ghost" onclick="exportCSV()">⬇ CSV</button>
+  </div>
+
+  <div class="content-area">
+    <div class="main-content">
+      <div class="table-wrap">
+        <table id="mainTable">
+          <colgroup>
+            <col class="col-id"><col class="col-type"><col class="col-title">
+            <col class="col-state"><col class="col-assigned"><col class="col-date">
+            <col class="col-rca"><col class="col-tl">
+          </colgroup>
+          <thead>
+            <tr>
+              <th onclick="sortBy('id')">ID <span class="sort-icon">↕</span></th>
+              <th onclick="sortBy('type')">Tipo <span class="sort-icon">↕</span></th>
+              <th onclick="sortBy('title')">Título <span class="sort-icon">↕</span></th>
+              <th onclick="sortBy('state')">Estado <span class="sort-icon">↕</span></th>
+              <th onclick="sortBy('assigned_to')">Asignado a <span class="sort-icon">↕</span></th>
+              <th onclick="sortBy('changed_date')">Modificado <span class="sort-icon">↕</span></th>
+              <th>RCA</th><th>TL</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+        <div class="empty" id="emptyState" style="display:none">
+          <div class="icon">🔍</div><p>No se encontraron resultados.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-panel" id="detailPanel">
+      <div class="panel-inner">
+        <div class="panel-header">
+          <h2 id="panelTitle">—</h2>
+          <button class="panel-close" onclick="closePanel('detailPanel')">✕</button>
+        </div>
+        <div class="panel-body" id="panelBody"></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /tab-devops -->
+
+<!-- ═══════════════════════════ TAB: INC ═══════════════════════════ -->
+<div id="tab-inc" class="tab-pane">
+
+  <div class="stats" id="incStatsBar"></div>
+
+  <div class="toolbar">
+    <input type="search" id="incSearchBox" placeholder="🔍  Buscar por número, título, notas…" oninput="applyIncFilters()" />
+    <select id="incStatusFilter" onchange="applyIncFilters()">
+      <option value="">Todos</option>
+      <option value="pendiente">Pendiente</option>
+      <option value="encontrado">Encontrado</option>
+    </select>
+    <button class="btn btn-primary" onclick="toggleAddForm()">+ Agregar INC</button>
+    <button class="btn btn-ghost"   onclick="exportIncJSON()">⬇ Exportar JSON</button>
+    <label  class="btn btn-ghost" style="cursor:pointer">
+      📂 Importar <input type="file" accept=".json" style="display:none" onchange="importIncJSON(this)">
+    </label>
+  </div>
+
+  <!-- Formulario de alta -->
+  <div class="add-inc-form" id="addIncForm">
+    <h4>Nuevo INC</h4>
+    <div class="add-inc-row">
+      <div class="field field-num">
+        <label>Número INC *</label>
+        <input type="text" id="newIncNumber" placeholder="INC0012345" />
+      </div>
+      <div class="field field-title">
+        <label>Título / descripción</label>
+        <input type="text" id="newIncTitle" placeholder="Breve descripción del incidente" />
+      </div>
+      <button class="btn btn-primary" onclick="submitAddINC()">Agregar</button>
+      <button class="btn btn-ghost"   onclick="toggleAddForm()">Cancelar</button>
+    </div>
+  </div>
+
+  <div class="content-area">
+    <div class="main-content">
+      <div class="table-wrap">
+        <table id="incTable">
+          <colgroup>
+            <col class="col-inc">
+            <col class="col-title">
+            <col class="col-status">
+            <col style="width:100px">
+            <col style="width:80px">
+          </colgroup>
+          <thead>
+            <tr>
+              <th onclick="sortIncBy('inc_number')">INC <span class="sort-icon">↕</span></th>
+              <th onclick="sortIncBy('title')">Título <span class="sort-icon">↕</span></th>
+              <th onclick="sortIncBy('status')">Status <span class="sort-icon">↕</span></th>
+              <th onclick="sortIncBy('devops_id')">DevOps ID <span class="sort-icon">↕</span></th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="incTableBody"></tbody>
+        </table>
+        <div class="empty" id="incEmptyState" style="display:none">
+          <div class="icon">📋</div>
+          <p>No hay INC registrados. Usa <b>+ Agregar INC</b> para comenzar.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-panel" id="incDetailPanel">
+      <div class="panel-inner">
+        <div class="panel-header">
+          <h2 id="incPanelTitle">—</h2>
+          <button class="panel-close" onclick="closePanel('incDetailPanel')">✕</button>
+        </div>
+        <div class="panel-body" id="incPanelBody"></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /tab-inc -->
+
+<div class="overlay" id="overlay"></div>
+
+<!-- ═══════════════════ TAB: MONITOR EN VIVO ═══════════════════════ -->
+<div id="tab-snow" class="tab-pane">
+
+  <!-- Alert banner (hidden until threshold crossed) -->
+  <div class="snow-alert-banner tl-yellow" id="snowAlertBanner" style="display:none">
+    <span class="snow-alert-icon" id="snowAlertIcon">🚨</span>
+    <span class="snow-alert-msg"  id="snowAlertMsg">Alerta de incidentes</span>
+    <div class="snow-alert-actions">
+      <button class="btn btn-ghost" onclick="dismissSnowAlert()">Cerrar</button>
+      <button class="btn btn-ghost" onclick="snoozeSnowAlert(300)">Snooze 5 min</button>
+      <button class="btn btn-ghost" onclick="snoozeSnowAlert(900)">Snooze 15 min</button>
+    </div>
+  </div>
+
+  <div class="stats" id="snowStatsBar"></div>
+
+  <div class="toolbar">
+    <input type="search" id="snowSearchBox"
+           placeholder="🔍  Buscar por número, descripción, asignado, categoría…"
+           oninput="applySnowFilters()" />
+    <select id="snowPriorityFilter" onchange="applySnowFilters()">
+      <option value="">Todas las prioridades</option>
+      <option value="1">1 - Crítica</option>
+      <option value="2">2 - Alta</option>
+      <option value="3">3 - Moderada</option>
+      <option value="4">4 - Baja</option>
+    </select>
+    <select id="snowStateFilter" onchange="applySnowFilters()">
+      <option value="">Todos los estados</option>
+      <option value="New">New</option>
+      <option value="In Progress">In Progress</option>
+      <option value="On Hold">On Hold</option>
+      <option value="Resolved">Resolved</option>
+    </select>
+    <button class="btn btn-ghost"    onclick="toggleSnowSettings()">⚙ Umbrales</button>
+    <button class="btn btn-primary"  onclick="pollSnowNow()">↻ Actualizar</button>
+    <span class="conn-wrap">
+      <span class="conn-dot conn-unknown" id="snowConnDot"></span>
+      <span id="snowConnLabel">Conectando…</span>
+    </span>
+    <span style="font-size:12px;color:var(--sub)" id="snowLastRefreshed">Actualizado: —</span>
+  </div>
+
+  <!-- Threshold settings panel -->
+  <div class="snow-settings-panel" id="snowSettingsPanel">
+    <h4>⚙ Configuración de umbrales y alertas</h4>
+    <div class="snow-settings-row">
+      <span>🟢 Verde: 0 –</span>
+      <input type="number" id="threshGreenMax" min="0" max="99" value="1" onchange="saveSnowThresholds()" />
+      <span>INC</span>
+    </div>
+    <div class="snow-settings-row">
+      <span>🟡 Amarillo:</span>
+      <input type="number" id="threshYellowMin" readonly />
+      <span>–</span>
+      <input type="number" id="threshYellowMax" min="1" max="99" value="4" onchange="saveSnowThresholds()" />
+      <span>INC</span>
+    </div>
+    <div class="snow-settings-row">
+      <span>🔴 Rojo: ≥</span>
+      <input type="number" id="threshRedMin" readonly />
+      <span>INC</span>
+    </div>
+    <hr class="snow-settings-sep">
+    <div class="snow-settings-row">
+      <label>Intervalo de actualización (segundos):</label>
+      <input type="number" id="snowPollInterval" min="10" max="3600" value="30" onchange="saveSnowThresholds()" />
+    </div>
+    <div class="snow-settings-row">
+      <label>Sonido de alerta:</label>
+      <input type="checkbox" id="snowSoundEnabled" checked onchange="saveSnowThresholds()" />
+      <label for="snowSoundEnabled">Activado</label>
+      <button class="btn btn-ghost" style="padding:3px 10px;font-size:11px" onclick="testSnowSound()">▶ Probar</button>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table id="snowTable" style="table-layout:fixed">
+      <colgroup>
+        <col style="width:130px">
+        <col style="width:auto">
+        <col style="width:115px">
+        <col style="width:115px">
+        <col style="width:155px">
+        <col style="width:115px">
+        <col style="width:85px">
+        <col style="width:148px">
+        <col style="width:148px">
+      </colgroup>
+      <thead>
+        <tr>
+          <th onclick="sortSnowBy('number')">Número <span class="sort-icon">↕</span></th>
+          <th onclick="sortSnowBy('short_description')">Descripción <span class="sort-icon">↕</span></th>
+          <th onclick="sortSnowBy('priority')">Prioridad <span class="sort-icon">↕</span></th>
+          <th onclick="sortSnowBy('state')">Estado <span class="sort-icon">↕</span></th>
+          <th onclick="sortSnowBy('assigned_to')">Asignado a <span class="sort-icon">↕</span></th>
+          <th onclick="sortSnowBy('category')">Categoría <span class="sort-icon">↕</span></th>
+          <th onclick="sortSnowBy('urgency')">Urgencia <span class="sort-icon">↕</span></th>
+          <th onclick="sortSnowBy('sys_created_on')">Creado <span class="sort-icon">↕</span></th>
+          <th onclick="sortSnowBy('sys_updated_on')">Actualizado <span class="sort-icon">↕</span></th>
+        </tr>
+      </thead>
+      <tbody id="snowTableBody"></tbody>
+    </table>
+    <div class="empty" id="snowEmptyState" style="display:none">
+      <div class="icon">📡</div>
+      <p>Sin incidentes activos. Verifica la conexión o los filtros.</p>
+    </div>
+  </div>
+
+</div><!-- /tab-snow -->
+
+<script>
+// DATA_START
+const DEVOPS_DATA = {
+  "last_updated": "2026-04-22T10:30:00Z",
+  "organization": "mi-org",
+  "project": "DevopsMc1",
+  "total_items": 2,
+  "items": [
+    {
+      "id": 1042,
+      "type": "Bug",
+      "title": "Error 500 al procesar pagos con tarjeta Visa",
+      "state": "Active",
+      "assigned_to": "Carlos Mendoza",
+      "created_date": "2026-04-10T09:00:00Z",
+      "changed_date": "2026-04-21T14:22:00Z",
+      "url": "https://dev.azure.com/mi-org/DevopsMc1/_workitems/edit/1042",
+      "tags": "pagos; visa; producción; crítico",
+      "rca": "Se detectó que el módulo de pagos no manejaba correctamente el campo CVV2 cuando el banco emisor devuelve un código 3DS. El problema raíz fue un race condition en la validación asíncrona introducido en el deploy v2.4.1.",
+      "timeline": "2026-04-10 09:00 - Reporte inicial del error por usuario.\n2026-04-10 11:30 - Equipo de soporte escala a ingeniería.\n2026-04-11 08:00 - Root cause identificado en módulo de pagos.\n2026-04-21 14:00 - Fix desplegado en producción.",
+      "description": "Los usuarios con tarjetas Visa reciben un error HTTP 500 al intentar completar una compra. El problema ocurre intermitentemente y afecta al 12% de las transacciones Visa.",
+      "comments": ["Confirmado en staging con tarjetas de prueba Visa 4111... Aparece solo cuando el banco retorna status 3DS_REQUIRED.", "Fix: manejar 3DS_REQUIRED de forma síncrona antes de validar CVV2. PR #287 listo.", "PR mergeado y desplegado en v2.4.2. Monitoreo activo 24h."],
+      "parent_id": 950,
+      "custom_fields": { "Custom.Severity": "Critical", "Custom.AffectedVersion": "2.4.1", "Custom.FixVersion": "2.4.2", "Microsoft.VSTS.Common.Priority": 1, "System.AreaPath": "DevopsMc1\\Pagos", "System.IterationPath": "DevopsMc1\\Sprint 13" },
+      "child_ids": [1043, 1044]
+    },
+    {
+      "id": 987,
+      "type": "User Story",
+      "title": "Como usuario quiero filtrar reportes por rango de fechas",
+      "state": "Resolved",
+      "assigned_to": "Ana Torres",
+      "created_date": "2026-03-15T10:00:00Z",
+      "changed_date": "2026-04-18T16:45:00Z",
+      "url": "https://dev.azure.com/mi-org/DevopsMc1/_workitems/edit/987",
+      "tags": "reportes; frontend; UX",
+      "rca": null,
+      "timeline": "2026-03-15 - Historia creada y refinada.\n2026-04-01 - Inicio de desarrollo.\n2026-04-15 - Code review aprobado.\n2026-04-18 - Desplegado en producción.",
+      "description": "El usuario necesita poder seleccionar un rango de fechas en la pantalla de reportes. Criterios: date-picker con validación, rango máximo de 1 año, resultados sin recargar la página.",
+      "comments": ["Usando date-fns para el date-picker, dependencia ya aprobada.", "QA aprobó los criterios de aceptación. Sin observaciones."],
+      "parent_id": null,
+      "custom_fields": { "Custom.StoryPoints": 5, "Microsoft.VSTS.Common.Priority": 2, "Custom.Sprint": "Sprint 12", "System.AreaPath": "DevopsMc1\\Reportes", "System.IterationPath": "DevopsMc1\\Sprint 12" },
+      "child_ids": []
+    }
+  ]
+};
+// DATA_END
+
+// SNOW_DUMMY_START
+const SNOW_DUMMY_ITEMS = [
+  { "number":"INC0099001", "short_description":"Caída del servicio de autenticación en producción",
+    "priority":"1", "priority_label":"1 - Crítica", "state":"In Progress",
+    "assigned_to":"Luis García", "category":"Software", "urgency":"1", "impact":"1",
+    "caller_id":"María López", "sys_created_on":"2026-04-22 08:15:00", "sys_updated_on":"2026-04-22 09:40:00" },
+  { "number":"INC0099002", "short_description":"Error de timeout en pagos con tarjeta Visa",
+    "priority":"2", "priority_label":"2 - Alta", "state":"New",
+    "assigned_to":"Carlos Mendoza", "category":"Software", "urgency":"1", "impact":"2",
+    "caller_id":"Pedro Ruiz", "sys_created_on":"2026-04-22 09:00:00", "sys_updated_on":"2026-04-22 09:05:00" },
+  { "number":"INC0099003", "short_description":"Reportes lentos en horas pico — tiempo de respuesta >10s",
+    "priority":"3", "priority_label":"3 - Moderada", "state":"In Progress",
+    "assigned_to":"Ana Torres", "category":"Performance", "urgency":"2", "impact":"2",
+    "caller_id":"Sofía Vega", "sys_created_on":"2026-04-21 14:30:00", "sys_updated_on":"2026-04-22 08:00:00" }
+];
+// SNOW_DUMMY_END
+
+// INC_DATA_START
+const INC_DEFAULTS = [
+  {
+    "inc_number": "INC0012347",
+    "title": "Error 500 intermitente al pagar con tarjeta Visa",
+    "status": "encontrado",
+    "devops_id": 1042,
+    "notes": "Confirmado: race condition en validación 3DS introducido en v2.4.1. Fix desplegado en v2.4.2.",
+    "added_date": "2026-04-22T08:30:00Z"
+  },
+  {
+    "inc_number": "INC0012346",
+    "title": "No se pueden exportar reportes con rango de fechas mayor a 7 días",
+    "status": "encontrado",
+    "devops_id": 987,
+    "notes": "Relacionado con la US de filtro por fechas. El date-picker no limita el rango que el generador de PDF soporta.",
+    "added_date": "2026-04-21T14:00:00Z"
+  },
+  {
+    "inc_number": "INC0012345",
+    "title": "Portal lento en horas pico, tiempos de respuesta mayores a 10s",
+    "status": "pendiente",
+    "devops_id": null,
+    "notes": "",
+    "added_date": "2026-04-22T09:15:00Z"
+  }
+];
+// INC_DATA_END
+
+// ══════════════════════ TAB LOGIC ══════════════════════════════════════════════
+function switchTab(name) {
+  document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  document.getElementById("tab-" + name).classList.add("active");
+  document.getElementById("tab-btn-" + name).classList.add("active");
+  closePanel("detailPanel");
+  closePanel("incDetailPanel");
+}
+
+// ══════════════════════ DEVOPS ═══════════════════════════════════════════════
+let allItems = DEVOPS_DATA.items || [];
+let filtered = [...allItems];
+let sortKey  = "changed_date";
+let sortAsc  = false;
+
+function init() {
+  const d = DEVOPS_DATA;
+  document.getElementById("headerMeta").innerHTML =
+    `<b>${d.organization}</b> / ${d.project}<br>Actualizado: ${fmtDate(d.last_updated)}`;
+  populateFilters();
+  renderStats();
+  applyFilters();
+  initINC();
+  initSnow();
+}
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  try { return new Date(iso).toLocaleString("es-MX", { year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" }); }
+  catch { return iso; }
+}
+
+function populateFilters() {
+  const types  = [...new Set(allItems.map(i => i.type))].sort();
+  const states = [...new Set(allItems.map(i => i.state))].sort();
+  const tSel = document.getElementById("typeFilter");
+  types.forEach(t  => { const o = document.createElement("option"); o.value = t; o.textContent = t; tSel.appendChild(o); });
+  const sSel = document.getElementById("stateFilter");
+  states.forEach(s => { const o = document.createElement("option"); o.value = s; o.textContent = s; sSel.appendChild(o); });
+}
+
+function applyFilters() {
+  const q   = document.getElementById("searchBox").value.toLowerCase();
+  const typ = document.getElementById("typeFilter").value;
+  const st  = document.getElementById("stateFilter").value;
+  const rca = document.getElementById("rcaFilter").value;
+
+  filtered = allItems.filter(item => {
+    if (typ && item.type  !== typ) return false;
+    if (st  && item.state !== st)  return false;
+    const hasRca = !!(item.rca || item.timeline);
+    if (rca === "yes" && !hasRca) return false;
+    if (rca === "no"  &&  hasRca) return false;
+    if (q) {
+      const hay = [
+        item.id, item.title, item.type, item.state, item.rca, item.timeline,
+        item.assigned_to, item.description, item.tags, item.parent_id,
+        (item.comments || []).join(" "),
+        Object.values(item.custom_fields || {}).join(" ")
+      ].join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  sortData(); renderTable(); renderStats();
+}
+
+function sortBy(key) {
+  if (sortKey === key) sortAsc = !sortAsc; else { sortKey = key; sortAsc = true; }
+  sortData(); renderTable();
+}
+
+function sortData() {
+  filtered.sort((a, b) => {
+    let va = a[sortKey] ?? "", vb = b[sortKey] ?? "";
+    if (typeof va === "number") return sortAsc ? va - vb : vb - va;
+    return sortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  });
+}
+
+function typeBadge(t) {
+  const map = { "User Story":"badge-type-user-story", "Bug":"badge-type-bug", "Task":"badge-type-task", "Feature":"badge-type-feature", "Epic":"badge-type-epic" };
+  return `<span class="badge ${map[t] || "badge-type-default"}">${esc(t)}</span>`;
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function renderStats() {
+  const total   = filtered.length;
+  const withRca = filtered.filter(i => i.rca || i.timeline).length;
+  const noRca   = total - withRca;
+  const types   = [...new Set(filtered.map(i => i.type))].length;
+  document.getElementById("statsBar").innerHTML = `
+    <div class="stat-card"><div class="val">${total}</div><div class="lbl">Work Items</div></div>
+    <div class="stat-card green"><div class="val">${withRca}</div><div class="lbl">Con RCA/Timeline</div></div>
+    <div class="stat-card yellow"><div class="val">${noRca}</div><div class="lbl">Sin RCA/Timeline</div></div>
+    <div class="stat-card"><div class="val">${types}</div><div class="lbl">Tipos distintos</div></div>`;
+}
+
+function renderTable() {
+  const tbody = document.getElementById("tableBody");
+  const empty = document.getElementById("emptyState");
+  if (!filtered.length) { tbody.innerHTML = ""; empty.style.display = ""; return; }
+  empty.style.display = "none";
+  tbody.innerHTML = filtered.map(item => {
+    const hasRca = !!(item.rca || item.timeline);
+    const rcaBadge = item.rca      ? `<span class="badge badge-rca-yes">✓ RCA</span>` : `<span class="badge badge-rca-no">—</span>`;
+    const tlBadge  = item.timeline ? `<span class="badge badge-rca-yes">✓ TL</span>`  : `<span class="badge badge-rca-no">—</span>`;
+    return `<tr class="${hasRca ? "has-rca" : "no-rca"}" data-id="${item.id}" onclick="openPanel(${item.id})">
+      <td class="id-col">${item.id}</td>
+      <td>${typeBadge(item.type)}</td>
+      <td class="truncate">${esc(item.title)}</td>
+      <td><span class="badge badge-type-default">${esc(item.state)}</span></td>
+      <td class="truncate">${esc(item.assigned_to)}</td>
+      <td style="white-space:nowrap;font-size:12px;color:var(--sub)">${fmtDate(item.changed_date)}</td>
+      <td>${rcaBadge}</td><td>${tlBadge}</td>
+    </tr>`;
+  }).join("");
+}
+
+function openPanel(id) {
+  const item = allItems.find(i => i.id === id);
+  if (!item) return;
+  document.getElementById("panelTitle").textContent = `#${item.id} · ${item.title}`;
+  const customRows = Object.entries(item.custom_fields || {})
+    .filter(([k,v]) => v !== null && v !== "" && !k.startsWith("_"))
+    .map(([k,v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
+  const commentRows = (item.comments || [])
+    .map((c,i) => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;line-height:1.5"><b style="color:var(--sub)">#${i+1}</b> ${esc(c)}</div>`)
+    .join("") || '<span style="color:#aaa">Sin comentarios.</span>';
+  document.getElementById("panelBody").innerHTML = `
+    <div class="panel-section">
+      <h3>Información general</h3>
+      <div class="meta-grid">
+        <div class="meta-item"><span class="mk">ID</span>${item.id}</div>
+        <div class="meta-item"><span class="mk">Tipo</span>${typeBadge(item.type)}</div>
+        <div class="meta-item"><span class="mk">Estado</span>${esc(item.state)}</div>
+        <div class="meta-item"><span class="mk">Asignado a</span>${esc(item.assigned_to) || "—"}</div>
+        <div class="meta-item"><span class="mk">Creado</span>${fmtDate(item.created_date)}</div>
+        <div class="meta-item"><span class="mk">Modificado</span>${fmtDate(item.changed_date)}</div>
+        ${item.parent_id ? `<div class="meta-item"><span class="mk">Parent ID</span>#${item.parent_id}</div>` : ""}
+        ${item.tags ? `<div class="meta-item" style="grid-column:span 2"><span class="mk">Tags</span>${item.tags.split(";").map(t=>`<span class="badge badge-type-default" style="margin:2px 2px 0 0">${esc(t.trim())}</span>`).join("")}</div>` : ""}
+      </div>
+      <a class="panel-link" href="${esc(item.url)}" target="_blank">🔗 Abrir en Azure DevOps ↗</a>
+    </div>
+    <div class="panel-section"><h3>RCA (Root Cause Analysis)</h3>
+      <p>${item.rca ? esc(item.rca) : '<span style="color:#aaa">No se encontró RCA.</span>'}</p></div>
+    <div class="panel-section"><h3>Timeline</h3>
+      <p>${item.timeline ? esc(item.timeline) : '<span style="color:#aaa">No se encontró Timeline.</span>'}</p></div>
+    <div class="panel-section"><h3>Descripción</h3>
+      <p style="font-size:13px;color:var(--sub)">${item.description ? esc(item.description.slice(0,800)) : '<span style="color:#aaa">Sin descripción.</span>'}</p></div>
+    <div class="panel-section"><h3>Comentarios (${(item.comments||[]).length})</h3>${commentRows}</div>
+    ${customRows ? `<div class="panel-section"><h3>Todos los campos</h3><table class="fields-table">${customRows}</table></div>` : ""}
+    ${item.child_ids && item.child_ids.length ? `<div class="panel-section"><h3>Tareas hijas (${item.child_ids.length})</h3><p style="color:var(--sub)">${item.child_ids.join(", ")}</p></div>` : ""}`;
+  document.querySelectorAll("#mainTable tbody tr").forEach(r => r.classList.remove("active-row"));
+  const row = document.querySelector(`#mainTable tbody tr[data-id="${id}"]`);
+  if (row) row.classList.add("active-row");
+  document.getElementById("detailPanel").classList.add("open");
+}
+
+function closePanel(panelId) {
+  document.getElementById(panelId).classList.remove("open");
+  document.querySelectorAll("tbody tr").forEach(r => r.classList.remove("active-row"));
+}
+
+function exportCSV() {
+  const cols = ["id","type","title","state","assigned_to","created_date","changed_date","rca","timeline","url"];
+  const hdrs = ["ID","Tipo","Título","Estado","Asignado a","Creado","Modificado","RCA","Timeline","URL"];
+  const rows = [hdrs, ...filtered.map(i => cols.map(k => `"${String(i[k]??"").replace(/"/g,'""')}"`))];;
+  const blob = new Blob([rows.map(r=>r.join(",")).join("\n")], {type:"text/csv;charset=utf-8;"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = `devops_export_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+}
+
+// ══════════════════════ INC ══════════════════════════════════════════════════
+let incItems    = [];
+let incFiltered = [];
+let incSortKey  = "added_date";
+let incSortAsc  = false;
+const INC_LS_KEY = "incList_v3";
+
+function initINC() {
+  const raw    = localStorage.getItem(INC_LS_KEY);
+  const parsed = raw ? JSON.parse(raw) : null;
+  incItems = (parsed && parsed.length > 0) ? parsed : INC_DEFAULTS.map(i => ({ ...i }));
+  applyIncFilters();
+}
+
+function _saveInc() {
+  localStorage.setItem(INC_LS_KEY, JSON.stringify(incItems));
+}
+
+// ── Add form ──────────────────────────────────────────────────────────────────
+function toggleAddForm() {
+  const form = document.getElementById("addIncForm");
+  form.classList.toggle("open");
+  if (form.classList.contains("open")) document.getElementById("newIncNumber").focus();
+}
+
+function submitAddINC() {
+  const num   = document.getElementById("newIncNumber").value.trim().toUpperCase();
+  const title = document.getElementById("newIncTitle").value.trim();
+  if (!num) { alert("El número de INC es obligatorio."); return; }
+  if (incItems.find(i => i.inc_number === num)) { alert(`${num} ya está en la lista.`); return; }
+  incItems.push({ inc_number: num, title, status: "pendiente", devops_id: null, notes: "", added_date: new Date().toISOString() });
+  _saveInc();
+  document.getElementById("newIncNumber").value = "";
+  document.getElementById("newIncTitle").value  = "";
+  document.getElementById("addIncForm").classList.remove("open");
+  applyIncFilters();
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && document.getElementById("addIncForm").classList.contains("open")) submitAddINC();
+});
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+function applyIncFilters() {
+  const q  = document.getElementById("incSearchBox").value.toLowerCase();
+  const st = document.getElementById("incStatusFilter").value;
+  incFiltered = incItems.filter(item => {
+    if (st && item.status !== st) return false;
+    if (q) {
+      const hay = [item.inc_number, item.title, item.notes, item.devops_id].join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  sortIncData(); renderIncTable(); renderIncStats();
+}
+
+function sortIncBy(key) {
+  if (incSortKey === key) incSortAsc = !incSortAsc; else { incSortKey = key; incSortAsc = true; }
+  sortIncData(); renderIncTable();
+}
+
+function sortIncData() {
+  incFiltered.sort((a, b) => {
+    let va = a[incSortKey] ?? "", vb = b[incSortKey] ?? "";
+    return incSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  });
+}
+
+// ── Status ────────────────────────────────────────────────────────────────────
+function statusBadge(s, num) {
+  if (s === "encontrado")
+    return `<span class="badge badge-found" title="Clic para marcar Pendiente" onclick="toggleIncStatus(event,'${num}')">✓ Encontrado</span>`;
+  return `<span class="badge badge-pending" title="Clic para marcar Encontrado" onclick="toggleIncStatus(event,'${num}')">⏳ Pendiente</span>`;
+}
+
+function toggleIncStatus(event, num) {
+  event.stopPropagation();
+  const item = incItems.find(i => i.inc_number === num);
+  if (!item) return;
+  item.status = item.status === "pendiente" ? "encontrado" : "pendiente";
+  _saveInc();
+  applyIncFilters();
+  if (document.getElementById("incDetailPanel").classList.contains("open") &&
+      document.getElementById("incPanelTitle").textContent.startsWith(num)) openIncPanel(num);
+}
+
+// ── Stats & table ─────────────────────────────────────────────────────────────
+function renderIncStats() {
+  const total   = incFiltered.length;
+  const found   = incFiltered.filter(i => i.status === "encontrado").length;
+  const pending = total - found;
+  const linked  = incFiltered.filter(i => i.devops_id).length;
+  document.getElementById("incStatsBar").innerHTML = `
+    <div class="stat-card"><div class="val">${total}</div><div class="lbl">INC registrados</div></div>
+    <div class="stat-card yellow"><div class="val">${pending}</div><div class="lbl">Pendientes</div></div>
+    <div class="stat-card green"><div class="val">${found}</div><div class="lbl">Encontrados</div></div>
+    <div class="stat-card"><div class="val">${linked}</div><div class="lbl">Con DevOps ID</div></div>`;
+}
+
+function renderIncTable() {
+  const tbody = document.getElementById("incTableBody");
+  const empty = document.getElementById("incEmptyState");
+  if (!incFiltered.length) { tbody.innerHTML = ""; empty.style.display = ""; return; }
+  empty.style.display = "none";
+  tbody.innerHTML = incFiltered.map(item => `
+    <tr class="${item.status === "encontrado" ? "inc-found" : "inc-pending"}" data-inc="${item.inc_number}" onclick="openIncPanel('${item.inc_number}')">
+      <td class="id-col">${esc(item.inc_number)}</td>
+      <td class="truncate">${esc(item.title) || '<span style="color:#aaa">—</span>'}</td>
+      <td>${statusBadge(item.status, item.inc_number)}</td>
+      <td style="font-weight:600;color:var(--blue)">${item.devops_id ? "#" + item.devops_id : '<span style="color:#aaa">—</span>'}</td>
+      <td><button class="btn btn-ghost" style="padding:3px 8px;font-size:11px" onclick="event.stopPropagation();deleteINC('${item.inc_number}')">🗑</button></td>
+    </tr>`).join("");
+}
+
+// ── Detail panel ──────────────────────────────────────────────────────────────
+function openIncPanel(num) {
+  const item = incItems.find(i => i.inc_number === num);
+  if (!item) return;
+  document.getElementById("incPanelTitle").textContent = `${item.inc_number}${item.title ? " · " + item.title : ""}`;
+
+  const results = searchDevOpsForINC(item.inc_number, item.title);
+  const resultsHTML = results.length
+    ? results.map(d => `
+        <div class="devops-result">
+          <div class="dr-id">#${d.id} ${typeBadge(d.type)}</div>
+          <div class="dr-title">${esc(d.title)}</div>
+          <div class="dr-meta">${esc(d.state)} · ${esc(d.assigned_to)}</div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="btn btn-primary" style="padding:4px 10px;font-size:11px"
+              onclick="navigateToDevOps(${d.id})">Ver en DevOps →</button>
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px"
+              onclick="linkDevOps('${num}', ${d.id})">Vincular</button>
+          </div>
+        </div>`).join("")
+    : `<p style="color:#aaa;font-size:12px">No se encontraron coincidencias en los work items de DevOps.</p>`;
+
+  document.getElementById("incPanelBody").innerHTML = `
+    <div class="panel-section">
+      <h3>Seguimiento</h3>
+      <div class="inc-field-group">
+        <label>Status</label>
+        <select onchange="updateIncField('${num}','status',this.value)">
+          <option value="pendiente"  ${item.status==="pendiente"  ?"selected":""}>⏳ Pendiente</option>
+          <option value="encontrado" ${item.status==="encontrado" ?"selected":""}>✓ Encontrado</option>
+        </select>
+      </div>
+      <div class="inc-field-group">
+        <label>ID DevOps vinculado</label>
+        <input type="number" placeholder="Ej: 1042" value="${item.devops_id ?? ""}"
+          onchange="updateIncField('${num}','devops_id', this.value ? Number(this.value) : null)" />
+      </div>
+      <div class="inc-field-group">
+        <label>Notas</label>
+        <textarea placeholder="Contexto, observaciones, links…"
+          onchange="updateIncField('${num}','notes',this.value)">${esc(item.notes)}</textarea>
+      </div>
+    </div>
+    <div class="panel-section">
+      <h3>Búsqueda en DevOps (${results.length} resultado${results.length !== 1 ? "s" : ""})</h3>
+      ${resultsHTML}
+    </div>`;
+
+  document.querySelectorAll("#incTable tbody tr").forEach(r => r.classList.remove("active-row"));
+  const row = document.querySelector(`#incTable tbody tr[data-inc="${num}"]`);
+  if (row) row.classList.add("active-row");
+  document.getElementById("incDetailPanel").classList.add("open");
+}
+
+// ── DevOps search ─────────────────────────────────────────────────────────────
+function searchDevOpsForINC(incNumber, incTitle) {
+  const terms = [incNumber, ...(incTitle || "").split(/\s+/)]
+    .map(t => t.toLowerCase().trim())
+    .filter(t => t.length > 3);
+  if (!terms.length) return [];
+  return allItems.filter(item => {
+    const hay = [
+      String(item.id), item.title, item.description, item.rca, item.timeline,
+      (item.comments || []).join(" "), Object.values(item.custom_fields || {}).join(" ")
+    ].join(" ").toLowerCase();
+    return terms.some(t => hay.includes(t));
+  });
+}
+
+function linkDevOps(incNumber, devopsId) {
+  updateIncField(incNumber, "devops_id", devopsId);
+  updateIncField(incNumber, "status", "encontrado");
+  openIncPanel(incNumber);
+  applyIncFilters();
+}
+
+function navigateToDevOps(devopsId) {
+  switchTab("devops");
+  openPanel(devopsId);
+}
+
+// ── CRUD helpers ──────────────────────────────────────────────────────────────
+function updateIncField(num, field, value) {
+  const item = incItems.find(i => i.inc_number === num);
+  if (!item) return;
+  item[field] = value;
+  _saveInc();
+  applyIncFilters();
+}
+
+function deleteINC(num) {
+  if (!confirm(`¿Eliminar ${num} de la lista?`)) return;
+  incItems = incItems.filter(i => i.inc_number !== num);
+  _saveInc();
+  closePanel("incDetailPanel");
+  applyIncFilters();
+}
+
+// ── Export / Import ───────────────────────────────────────────────────────────
+function exportIncJSON() {
+  const payload = { last_updated: new Date().toISOString(), total_items: incItems.length, items: incItems };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = `inc_${new Date().toISOString().slice(0,10)}.json`; a.click();
+}
+
+function importIncJSON(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!Array.isArray(data.items)) throw new Error("Formato inválido: se esperaba { items: [] }");
+      incItems = data.items.map(i => ({ ...i }));
+      _saveInc(); applyIncFilters();
+      alert(`${incItems.length} INC importados correctamente.`);
+    } catch (err) { alert("Error: " + err.message); }
+  };
+  reader.readAsText(file); input.value = "";
+}
+
+// ══════════════════════ SNOW MONITOR ════════════════════════════════════════
+let snowItems          = [];
+let snowFiltered       = [];
+let snowSortKey        = "priority";
+let snowSortAsc        = true;
+let snowPoller         = null;
+let snowSnoozedUntil   = 0;
+let snowLastAlertCount = -1;
+const SNOW_SETTINGS_KEY = "snowSettings_v1";
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+function getSnowSettings() {
+  const defaults = { greenMax: 1, yellowMax: 4, pollInterval: 30, sound: true };
+  try { return { ...defaults, ...JSON.parse(localStorage.getItem(SNOW_SETTINGS_KEY) || "{}") }; }
+  catch { return defaults; }
+}
+
+function saveSnowThresholds() {
+  const s = {
+    greenMax:     parseInt(document.getElementById("threshGreenMax").value)  || 1,
+    yellowMax:    parseInt(document.getElementById("threshYellowMax").value) || 4,
+    pollInterval: parseInt(document.getElementById("snowPollInterval").value) || 30,
+    sound:        document.getElementById("snowSoundEnabled").checked,
+  };
+  localStorage.setItem(SNOW_SETTINGS_KEY, JSON.stringify(s));
+  _updateDerivedThreshFields(s);
+  startSnowPoller();
+  applySnowFilters();
+}
+
+function loadSnowSettings() {
+  const s = getSnowSettings();
+  document.getElementById("threshGreenMax").value    = s.greenMax;
+  document.getElementById("threshYellowMax").value   = s.yellowMax;
+  document.getElementById("snowPollInterval").value  = s.pollInterval;
+  document.getElementById("snowSoundEnabled").checked = s.sound;
+  _updateDerivedThreshFields(s);
+}
+
+function _updateDerivedThreshFields(s) {
+  document.getElementById("threshYellowMin").value = s.greenMax + 1;
+  document.getElementById("threshRedMin").value    = s.yellowMax + 1;
+}
+
+function toggleSnowSettings() {
+  document.getElementById("snowSettingsPanel").classList.toggle("open");
+}
+
+// ── Traffic light ─────────────────────────────────────────────────────────────
+function getTrafficLight(count) {
+  const s = getSnowSettings();
+  if (count <= s.greenMax)  return { emoji: "🟢", label: "Normal",   cssClass: "tl-green",  level: "green" };
+  if (count <= s.yellowMax) return { emoji: "🟡", label: "Precaución", cssClass: "tl-yellow", level: "yellow" };
+  return                           { emoji: "🔴", label: "Alerta",   cssClass: "tl-red",    level: "red" };
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+function initSnow() {
+  loadSnowSettings();
+  startSnowPoller();
+  pollSnowNow();
+}
+
+function startSnowPoller() {
+  if (snowPoller) clearInterval(snowPoller);
+  const ms = (getSnowSettings().pollInterval || 30) * 1000;
+  snowPoller = setInterval(pollSnowNow, ms);
+}
+
+async function pollSnowNow() {
+  try {
+    const resp = await fetch("/snow", { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (data.fetch_status === "error" && data.error) throw new Error(data.error);
+    setSnowConnStatus("ok");
+    snowItems = data.items || [];
+    document.getElementById("snowLastRefreshed").textContent =
+      "Actualizado: " + new Date().toLocaleTimeString("es-MX");
+    applySnowFilters();
+    checkSnowAlerts();
+  } catch (_) {
+    // Servidor no disponible — usar datos dummy embebidos (modo sin Python)
+    if (snowItems.length === 0) {
+      snowItems = SNOW_DUMMY_ITEMS;
+      applySnowFilters();
+      checkSnowAlerts();
+    }
+    setSnowConnStatus("offline");
+    document.getElementById("snowLastRefreshed").textContent =
+      "Sin servidor — datos demo";
+  }
+}
+
+// ── Connection status ─────────────────────────────────────────────────────────
+function setSnowConnStatus(status, detail) {
+  document.getElementById("snowConnDot").className = "conn-dot conn-" + status;
+  const labels = {
+    ok:      "Conectado",
+    error:   "Error: " + (detail || "desconocido"),
+    offline: "Demo (sin servidor)",
+    unknown: "Conectando…",
+  };
+  document.getElementById("snowConnLabel").textContent = labels[status] || status;
+}
+
+// ── Filters & sort ────────────────────────────────────────────────────────────
+function applySnowFilters() {
+  const q   = document.getElementById("snowSearchBox").value.toLowerCase();
+  const pri = document.getElementById("snowPriorityFilter").value;
+  const st  = document.getElementById("snowStateFilter").value;
+  snowFiltered = snowItems.filter(item => {
+    if (pri && item.priority !== pri) return false;
+    if (st  && item.state    !== st)  return false;
+    if (q) {
+      const hay = [item.number, item.short_description, item.assigned_to,
+                   item.category, item.state, item.caller_id].join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  sortSnowData(); renderSnowTable(); renderSnowStats();
+}
+
+function sortSnowBy(key) {
+  if (snowSortKey === key) snowSortAsc = !snowSortAsc;
+  else { snowSortKey = key; snowSortAsc = true; }
+  sortSnowData(); renderSnowTable();
+}
+
+function sortSnowData() {
+  snowFiltered.sort((a, b) => {
+    let va = a[snowSortKey] ?? "", vb = b[snowSortKey] ?? "";
+    return snowSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  });
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderSnowStats() {
+  const total    = snowFiltered.length;
+  const critical = snowFiltered.filter(i => i.priority === "1").length;
+  const high     = snowFiltered.filter(i => i.priority === "2").length;
+  const other    = total - critical - high;
+  const light    = getTrafficLight(total);
+
+  document.getElementById("snowTabIcon").textContent = light.emoji;
+
+  document.getElementById("snowStatsBar").innerHTML = `
+    <div class="stat-card snow-semaphore ${light.cssClass}">
+      <div class="val">${light.emoji}</div>
+      <div class="lbl">${light.label}</div>
+    </div>
+    <div class="stat-card">
+      <div class="val">${total}</div><div class="lbl">INC Activos</div>
+    </div>
+    <div class="stat-card red">
+      <div class="val">${critical}</div><div class="lbl">Críticos (P1)</div>
+    </div>
+    <div class="stat-card yellow">
+      <div class="val">${high}</div><div class="lbl">Altos (P2)</div>
+    </div>
+    <div class="stat-card green">
+      <div class="val">${other}</div><div class="lbl">P3 – P5</div>
+    </div>`;
+}
+
+function renderSnowTable() {
+  const tbody = document.getElementById("snowTableBody");
+  const empty = document.getElementById("snowEmptyState");
+  if (!snowFiltered.length) { tbody.innerHTML = ""; empty.style.display = ""; return; }
+  empty.style.display = "none";
+  tbody.innerHTML = snowFiltered.map(item => `
+    <tr>
+      <td class="id-col">${esc(item.number)}</td>
+      <td class="truncate">${esc(item.short_description)}</td>
+      <td>${snowPriorityBadge(item.priority, item.priority_label)}</td>
+      <td>${snowStateBadge(item.state)}</td>
+      <td class="truncate">${esc(item.assigned_to)}</td>
+      <td class="truncate">${esc(item.category)}</td>
+      <td style="text-align:center;font-size:12px;color:var(--sub)">${esc(item.urgency)}</td>
+      <td style="font-size:12px;color:var(--sub);white-space:nowrap">${esc(item.sys_created_on)}</td>
+      <td style="font-size:12px;color:var(--sub);white-space:nowrap">${esc(item.sys_updated_on)}</td>
+    </tr>`).join("");
+}
+
+function snowPriorityBadge(p, label) {
+  const text = label || p;
+  const map  = { "1": "badge-pri-1", "2": "badge-pri-2", "3": "badge-pri-3" };
+  return `<span class="badge ${map[String(p)] || "badge-pri-other"}">${esc(text)}</span>`;
+}
+
+function snowStateBadge(state) {
+  const map = {
+    "New":         "badge-type-user-story",
+    "In Progress": "badge-rca-yes",
+    "On Hold":     "badge-rca-no",
+    "Resolved":    "badge-type-default",
+    "Closed":      "badge-type-default",
+  };
+  return `<span class="badge ${map[state] || "badge-type-default"}">${esc(state)}</span>`;
+}
+
+// ── Alerts ────────────────────────────────────────────────────────────────────
+function checkSnowAlerts() {
+  const total = snowItems.length;
+  const light = getTrafficLight(total);
+  const s     = getSnowSettings();
+  const shouldAlert = total > s.greenMax;
+
+  if (shouldAlert && total !== snowLastAlertCount) {
+    if (Date.now() > snowSnoozedUntil) {
+      showSnowAlert(total, light);
+      if (s.sound) playSnowAlertSound(light.level);
+    }
+  } else if (!shouldAlert) {
+    document.getElementById("snowAlertBanner").style.display = "none";
+    snowSnoozedUntil = 0;
+  }
+  snowLastAlertCount = total;
+}
+
+function showSnowAlert(count, light) {
+  const banner = document.getElementById("snowAlertBanner");
+  banner.className = `snow-alert-banner ${light.cssClass}`;
+  document.getElementById("snowAlertIcon").textContent =
+    light.level === "red" ? "🚨" : "⚠️";
+  document.getElementById("snowAlertMsg").textContent =
+    `${count} incidente${count !== 1 ? "s" : ""} activo${count !== 1 ? "s" : ""} — umbral ${light.label.toLowerCase()} superado`;
+  banner.style.display = "flex";
+}
+
+function dismissSnowAlert() {
+  document.getElementById("snowAlertBanner").style.display = "none";
+  snowSnoozedUntil   = 0;
+  snowLastAlertCount = snowItems.length;
+}
+
+function snoozeSnowAlert(secs) {
+  document.getElementById("snowAlertBanner").style.display = "none";
+  snowSnoozedUntil = Date.now() + secs * 1000;
+}
+
+// ── Sound (Web Audio API — no external deps) ──────────────────────────────────
+function playSnowAlertSound(level) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const notes = level === "red"
+      ? [{ f: 1047, t: 0,    d: .12 }, { f: 1319, t: .18, d: .12 }, { f: 1568, t: .36, d: .25 }]
+      : [{ f: 880,  t: 0,    d: .15 }, { f: 880,  t: .22, d: .15 }];
+    notes.forEach(({ f, t, d }) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(f, ctx.currentTime + t);
+      gain.gain.setValueAtTime(0.35, ctx.currentTime + t);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + d);
+      osc.start(ctx.currentTime + t);
+      osc.stop(ctx.currentTime + t + d + .05);
+    });
+    setTimeout(() => ctx.close(), 2000);
+  } catch (_) { /* silent fail */ }
+}
+
+function testSnowSound() { playSnowAlertSound("red"); }
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closePanel("detailPanel"); closePanel("incDetailPanel"); } });
+init();
+</script>
+</body>
+</html>
