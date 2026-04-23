@@ -14,9 +14,10 @@ import urllib.request
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-DASHBOARD  = os.path.join(BASE_DIR, "dashboard.html")
+BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE  = os.path.join(BASE_DIR, "config.json")
+COOKIES_FILE = os.path.join(BASE_DIR, "cookies.json")
+DASHBOARD    = os.path.join(BASE_DIR, "dashboard.html")
 
 DUMMY_ITEMS = [
     {
@@ -67,14 +68,27 @@ def load_config():
     return cfg
 
 
+def _load_cookies():
+    """Load session cookies saved by get_snow_cookies.py."""
+    if not os.path.exists(COOKIES_FILE):
+        raise FileNotFoundError(
+            "cookies.json no encontrado. "
+            "Ejecuta: python get_snow_cookies.py"
+        )
+    with open(COOKIES_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    cookies = data.get("cookies", {})
+    if not cookies:
+        raise ValueError("cookies.json está vacío. Ejecuta: python get_snow_cookies.py")
+    return "; ".join(f"{k}={v}" for k, v in cookies.items())
+
+
 def fetch_incidents(cfg):
     snow = cfg["servicenow"]
     if cfg.get("use_dummy_data"):
         return DUMMY_ITEMS
 
     instance = snow["instance"]
-    username = snow["username"]
-    password = snow["password"]
     query    = snow.get("query", "active=true^stateNOT IN6,7,8")
     fields   = snow.get(
         "fields",
@@ -91,13 +105,26 @@ def fetch_incidents(cfg):
     )
     url = f"https://{instance}.service-now.com/api/now/table/incident?{params}"
 
-    token = base64.b64encode(f"{username}:{password}".encode()).decode()
-    req   = urllib.request.Request(
-        url,
-        headers={"Authorization": f"Basic {token}", "Accept": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read().decode())["result"]
+    if cfg.get("use_cookie_auth"):
+        cookie_header = _load_cookies()
+        headers = {"Cookie": cookie_header, "Accept": "application/json"}
+    else:
+        username = snow.get("username", "")
+        password = snow.get("password", "")
+        token    = base64.b64encode(f"{username}:{password}".encode()).decode()
+        headers  = {"Authorization": f"Basic {token}", "Accept": "application/json"}
+
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return json.loads(resp.read().decode())["result"]
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403) and cfg.get("use_cookie_auth"):
+            raise RuntimeError(
+                f"Error {exc.code}: cookies expiradas o inválidas. "
+                "Ejecuta nuevamente: python get_snow_cookies.py"
+            ) from exc
+        raise
 
 
 def _display(field):

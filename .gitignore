@@ -14,3 +14,6 @@ __pycache__/
 
 # Sensitive configs (keep config.json with placeholders only)
 config.local.json
+
+# ServiceNow session cookies (never commit)
+cookies.json

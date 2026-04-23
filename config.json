@@ -8,6 +8,7 @@
   "timeline_field_keywords": ["timeline", "cronologia", "cronología", "línea de tiempo", "linea de tiempo", "tiempo"],
   "work_item_types": ["User Story", "Bug", "Task", "Feature", "Epic"],
   "use_dummy_data": true,
+  "use_cookie_auth": false,
   "servicenow": {
     "instance":              "TU_INSTANCIA",
     "username":              "TU_USUARIO",
