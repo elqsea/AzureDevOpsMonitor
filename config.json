@@ -7,8 +7,8 @@
   "rca_field_keywords": ["rca", "root cause", "causa raiz", "causa raíz", "rootcause", "análisis causa"],
   "timeline_field_keywords": ["timeline", "cronologia", "cronología", "línea de tiempo", "linea de tiempo", "tiempo"],
   "work_item_types": ["User Story", "Bug", "Task", "Feature", "Epic"],
-  "use_dummy_data": true,
-  "use_cookie_auth": false,
+  "use_dummy_data": false,
+  "use_cookie_auth": true,
   "servicenow": {
     "instance":              "TU_INSTANCIA",
     "username":              "TU_USUARIO",
