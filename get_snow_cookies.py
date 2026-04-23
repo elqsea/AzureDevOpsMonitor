@@ -61,40 +61,50 @@ def try_auto_extract(instance):
 
 def manual_input(instance):
     """
-    Modo manual: el usuario pega el header Cookie completo desde DevTools.
-    Esto captura TODAS las cookies de una vez, incluyendo las de SSO/F5.
+    Modo manual: el usuario pega el header Cookie completo y el X-UserToken
+    desde DevTools Network tab.
     """
-    print("\nModo manual — sigue estos pasos:")
-    print(f"  1. Abre Chrome/Edge con sesión activa en {instance}.service-now.com")
+    print("\nModo manual — sigue estos pasos en Chrome/Edge:")
+    print(f"  1. Abre {instance}.service-now.com con sesión activa")
     print("  2. Abre DevTools (F12) → pestaña 'Network'")
     print("  3. Recarga la página (F5)")
-    print("  4. Haz clic en la primera petición a service-now.com")
+    print("  4. Haz clic en cualquier peticion a service-now.com")
     print("  5. En 'Headers' → sección 'Request Headers'")
-    print("  6. Copia el valor completo de la línea 'cookie:'")
-    print()
-    print("  Pega aquí el valor completo del header 'cookie' y presiona Enter:")
-    print("  (Ejemplo: glide_session_store=ABC; JSESSIONID=XYZ; BIGipServer=...)")
     print()
 
+    # --- Cookie header ---
+    print("  [Paso A] Copia el valor completo de la línea 'cookie:'")
+    print("  (Ejemplo: glide_session_store=ABC; JSESSIONID=XYZ; BIGipServer=...)")
+    print()
     while True:
         raw = input("  cookie> ").strip()
         if raw:
             break
         print("  [ERROR] No puede estar vacío.")
 
-    # Parsear "name=value; name2=value2; ..."
     cookies = {}
     for part in raw.split(";"):
         part = part.strip()
         if "=" in part:
             name, _, value = part.partition("=")
             cookies[name.strip()] = value.strip()
+    print(f"  Parseadas {len(cookies)} cookie(s).")
 
-    print(f"\n  Parseadas {len(cookies)} cookie(s).")
-    return cookies
+    # --- X-UserToken ---
+    print()
+    print("  [Paso B] Busca la línea 'x-usertoken:' en esos mismos Request Headers")
+    print("  Si no aparece, busca en otra petición XHR/Fetch del mismo dominio.")
+    print("  Déjalo vacío si no lo encuentras.")
+    user_token = input("  x-usertoken> ").strip()
+    if user_token:
+        print("  X-UserToken capturado.")
+    else:
+        print("  [WARN] Sin X-UserToken — la API podría rechazar la sesión (401).")
+
+    return cookies, user_token
 
 
-def verify_cookies(cookies, instance):
+def verify_cookies(cookies, user_token, instance):
     """Petición de prueba para validar las cookies."""
     try:
         cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items())
@@ -102,10 +112,10 @@ def verify_cookies(cookies, instance):
             f"https://{instance}.service-now.com"
             "/api/now/table/incident?sysparm_limit=1&sysparm_fields=number"
         )
-        req = urllib.request.Request(url, headers={
-            "Cookie":  cookie_header,
-            "Accept":  "application/json",
-        })
+        headers = {"Cookie": cookie_header, "Accept": "application/json"}
+        if user_token:
+            headers["X-UserToken"] = user_token
+        req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode())
             if "result" in data:
@@ -114,16 +124,16 @@ def verify_cookies(cookies, instance):
             print("  [WARN] Respuesta inesperada:", data)
             return False
     except urllib.error.HTTPError as exc:
-        print(f"  [ERROR] HTTP {exc.code} — cookies inválidas o sesión expirada.")
-        print("          Asegúrate de tener sesión activa en ServiceNow.")
+        print(f"  [ERROR] HTTP {exc.code} — cookies o token inválidos.")
+        print("          Verifica que tengas sesión activa y que el X-UserToken sea correcto.")
         return False
     except Exception as exc:
         print(f"  [ERROR] {exc}")
         return False
 
 
-def save_cookies(cookies, instance):
-    payload = {"instance": instance, "cookies": cookies}
+def save_cookies(cookies, user_token, instance):
+    payload = {"instance": instance, "cookies": cookies, "user_token": user_token}
     with open(COOKIES_FILE, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
     print(f"  Cookies guardadas en: {COOKIES_FILE}")
@@ -141,24 +151,25 @@ def main():
         print("  [WARN] No se encontró 'instance' en config.json\n")
 
     # 1. Intento automático
-    cookies = try_auto_extract(instance)
-
-    # 2. Fallback manual (pega el header cookie completo)
-    if not cookies:
-        cookies = manual_input(instance)
+    auto = try_auto_extract(instance)
+    if auto:
+        cookies = auto
+        user_token = ""
+    else:
+        # 2. Fallback manual
+        cookies, user_token = manual_input(instance)
 
     # 3. Verificar
     if instance:
         print("\n  Verificando cookies contra la API...")
-        ok = verify_cookies(cookies, instance)
+        ok = verify_cookies(cookies, user_token, instance)
         if not ok:
-            print("\n  Intenta de nuevo con una sesión activa.")
-            return
+            print("\n  Guardando de todas formas — puedes intentar el monitor y ver si funciona.")
     else:
         print("  [SKIP] Verificación omitida — configura 'instance' en config.json")
 
     # 4. Guardar
-    save_cookies(cookies, instance)
+    save_cookies(cookies, user_token, instance)
 
     print("\n  Siguiente paso:")
     print('  1. En config.json: "use_cookie_auth": true, "use_dummy_data": false')

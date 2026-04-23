@@ -69,7 +69,7 @@ def load_config():
 
 
 def _load_cookies():
-    """Load session cookies saved by get_snow_cookies.py."""
+    """Load session cookies and X-UserToken saved by get_snow_cookies.py."""
     if not os.path.exists(COOKIES_FILE):
         raise FileNotFoundError(
             "cookies.json no encontrado. "
@@ -80,7 +80,9 @@ def _load_cookies():
     cookies = data.get("cookies", {})
     if not cookies:
         raise ValueError("cookies.json está vacío. Ejecuta: python get_snow_cookies.py")
-    return "; ".join(f"{k}={v}" for k, v in cookies.items())
+    cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items())
+    user_token    = data.get("user_token", "")
+    return cookie_header, user_token
 
 
 def fetch_incidents(cfg):
@@ -106,8 +108,10 @@ def fetch_incidents(cfg):
     url = f"https://{instance}.service-now.com/api/now/table/incident?{params}"
 
     if cfg.get("use_cookie_auth"):
-        cookie_header = _load_cookies()
+        cookie_header, user_token = _load_cookies()
         headers = {"Cookie": cookie_header, "Accept": "application/json"}
+        if user_token:
+            headers["X-UserToken"] = user_token
     else:
         username = snow.get("username", "")
         password = snow.get("password", "")
