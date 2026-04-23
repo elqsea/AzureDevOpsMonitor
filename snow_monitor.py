@@ -92,13 +92,56 @@ def fetch_incidents(cfg):
 
     instance = snow["instance"]
     query    = snow.get("query", "active=true^stateNOT IN6,7,8")
-    fields   = snow.get(
+    limit    = snow.get("limit", 500)
+
+    if cfg.get("use_cookie_auth"):
+        return _fetch_via_jsonv2(instance, query, limit)
+    else:
+        return _fetch_via_rest(snow, instance, query, limit)
+
+
+def _fetch_via_jsonv2(instance, query, limit):
+    """
+    Usa la API JSONv2 legacy de ServiceNow, que acepta cookies de sesion SSO
+    sin requerir x-usertoken ni Basic Auth.
+    URL: /incident.do?JSONv2&sysparm_action=getRecords&...
+    """
+    cookie_header, user_token = _load_cookies()
+    params = (
+        f"sysparm_action=getRecords"
+        f"&sysparm_query={urllib.request.quote(query)}"
+        f"&sysparm_limit={limit}"
+    )
+    url = f"https://{instance}.service-now.com/incident.do?JSONv2&{params}"
+    headers = {
+        "Cookie":  cookie_header,
+        "Accept":  "application/json",
+        "Referer": f"https://{instance}.service-now.com/",
+    }
+    if user_token:
+        headers["X-UserToken"] = user_token
+
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode())
+            return data.get("records", [])
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise RuntimeError(
+                f"Error {exc.code}: sesion expirada o sin permisos. "
+                "Ejecuta: python get_snow_cookies.py"
+            ) from exc
+        raise
+
+
+def _fetch_via_rest(snow, instance, query, limit):
+    """Autenticacion Basic Auth para instancias sin SSO."""
+    fields = snow.get(
         "fields",
         "number,short_description,priority,state,assigned_to,"
         "category,urgency,impact,caller_id,sys_created_on,sys_updated_on",
     )
-    limit    = snow.get("limit", 500)
-
     params = (
         f"sysparm_query={urllib.request.quote(query)}"
         f"&sysparm_fields={urllib.request.quote(fields)}"
@@ -106,32 +149,20 @@ def fetch_incidents(cfg):
         f"&sysparm_display_value=true"
     )
     url = f"https://{instance}.service-now.com/api/now/table/incident?{params}"
-
-    if cfg.get("use_cookie_auth"):
-        cookie_header, user_token = _load_cookies()
-        headers = {"Cookie": cookie_header, "Accept": "application/json"}
-        if user_token:
-            headers["X-UserToken"] = user_token
-    else:
-        username = snow.get("username", "")
-        password = snow.get("password", "")
-        token    = base64.b64encode(f"{username}:{password}".encode()).decode()
-        headers  = {"Authorization": f"Basic {token}", "Accept": "application/json"}
-
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            return json.loads(resp.read().decode())["result"]
-    except urllib.error.HTTPError as exc:
-        if exc.code in (401, 403) and cfg.get("use_cookie_auth"):
-            raise RuntimeError(
-                f"Error {exc.code}: cookies expiradas o inválidas. "
-                "Ejecuta nuevamente: python get_snow_cookies.py"
-            ) from exc
-        raise
+    username = snow.get("username", "")
+    password = snow.get("password", "")
+    token    = base64.b64encode(f"{username}:{password}".encode()).decode()
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Basic {token}", "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode())["result"]
 
 
 def _display(field):
+    # REST API devuelve {"display_value": ..., "value": ...}
+    # JSONv2 devuelve strings directamente
     if isinstance(field, dict):
         return field.get("display_value") or field.get("value", "")
     return str(field or "")
